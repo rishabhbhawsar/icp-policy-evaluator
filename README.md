@@ -87,7 +87,3 @@ Designed to run on a free-tier host (Render free Web Service or Hugging Face Spa
 ## 7. Project Status
 
 🚧 Actively being built incrementally, file by file, with each stage committed separately. See commit history for build order: config/schema foundations → OpenAI client → evaluator service → API layer → concurrency + caching → benchmark harness.
-
----
-
-Author: Rishabh Bhawsar 

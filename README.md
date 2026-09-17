@@ -78,13 +78,3 @@ The application separates runtime configuration from source code through environ
 - LinkedIn: [Rishabh Bhawsar](https://www.linkedin.com/in/rishabh-bhawsar-409098262/)
 - Email: rishabhbhawsar53@gmail.com
 ```
-
----
-
-4. Scroll down to the bottom of the page and click the green **"Commit changes..."** button to make it live!
-
-Once you complete this, your public profile documentation will match elite engineering standards. Your backend architecture is safe, clean, and professional.
-
-<FollowUp>
-Let me know once your **updated repository overview is live** in the cloud. Are you ready to proceed with **Step 8: Designing a Centralized Configuration Registry (`src/core/config.py`)** using `pydantic-settings` to manage your environment variables cleanly?
-</FollowUp>

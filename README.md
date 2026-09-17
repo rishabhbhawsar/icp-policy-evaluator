@@ -77,4 +77,3 @@ The application separates runtime configuration from source code through environ
 - GitHub: [rishabhbhawsar](https://github.com/rishabhbhawsar)
 - LinkedIn: [Rishabh Bhawsar](https://www.linkedin.com/in/rishabh-bhawsar-409098262/)
 - Email: rishabhbhawsar53@gmail.com
-```

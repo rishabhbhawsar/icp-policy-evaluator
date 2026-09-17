@@ -1,10 +1,10 @@
 """src/main.py
 
-FastAPI composition root. Wires OpenAIJudgeClient + PolicyEvaluator to
-in-memory stand-ins for TaxonomyRepository/CacheBackend/LedgerWriter
-(Protocols defined in evaluator.py) so the service runs end-to-end without
-SQLite/Redis being built yet. Swap these three classes for real
-implementations later without touching evaluator.py or these routes.
+FastAPI composition root. Wires OpenAIJudgeClient + PolicyEvaluator to the
+real aiosqlite-backed LedgerWriter/CacheBackend (persistence.py). No real
+policy-registry store exists yet, so TaxonomyRepository remains an
+in-memory stand-in seeded with demo data -- swap it for a real repository
+without touching evaluator.py or these routes.
 
 Error mapping:
   EmptyInputError      -> 422  (syntactically valid request, semantically empty content)
@@ -43,14 +43,18 @@ from src.services.evaluator import (
     PolicyNotFoundError,
 )
 from src.services.openai_client import JudgeRefusalError, JudgeTruncationError, OpenAIJudgeClient
+from src.services.persistence import SQLiteCacheBackend, SQLiteLedgerWriter
 
 logger = logging.getLogger(__name__)
 
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
+DATABASE_PATH = os.environ.get("DATABASE_PATH", "compliance.db")
 
 _POLICY_ID_PATTERN = r"^[A-Z]{2,10}-\d{3}$"
 
-# --- in-memory Protocol implementations (replace with SQLite/Redis-backed classes later) ---
+# --- taxonomy repository: still in-memory. No SQLite-backed policy registry has been
+# built yet (Step 6 covered ledger + cache only); this is a known open item, not an
+# oversight -- see module docstring. ---
 
 
 class InMemoryTaxonomyRepository:
@@ -59,28 +63,6 @@ class InMemoryTaxonomyRepository:
 
     async def get(self, policy_id: str, locale: SupportedLocale) -> ICPTaxonomy | None:
         return self._by_key.get((policy_id, locale))
-
-
-class InMemoryCacheBackend:
-    def __init__(self) -> None:
-        self._store: dict[str, EvaluationResult] = {}
-
-    async def get(self, key: str) -> EvaluationResult | None:
-        return self._store.get(key)
-
-    async def set(self, key: str, value: EvaluationResult, ttl_seconds: int) -> None:
-        # TTL intentionally unenforced here; a real backend (Redis) owns expiry semantics.
-        self._store[key] = value
-
-
-class InMemoryLedgerWriter:
-    def __init__(self) -> None:
-        self.records: list[dict] = []
-
-    async def record(self, *, cache_key: str, business_description: str, result: EvaluationResult) -> None:
-        self.records.append(
-            {"cache_key": cache_key, "business_description": business_description, "result": result}
-        )
 
 
 _SEED_POLICIES = [
@@ -142,15 +124,24 @@ class HealthResponse(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     judge_client = OpenAIJudgeClient(api_key=OPENAI_API_KEY)
+    ledger = await SQLiteLedgerWriter.create(DATABASE_PATH)
+    cache = await SQLiteCacheBackend.create(DATABASE_PATH)
+
     app.state.judge_client = judge_client
+    app.state.ledger = ledger
+    app.state.cache = cache
     app.state.evaluator = PolicyEvaluator(
         judge_client=judge_client,
         taxonomy_repo=InMemoryTaxonomyRepository(_SEED_POLICIES),
-        cache=InMemoryCacheBackend(),
-        ledger=InMemoryLedgerWriter(),
+        cache=cache,
+        ledger=ledger,
     )
+
     yield
+
     await judge_client.aclose()
+    await cache.close()
+    await ledger.close()
 
 
 app = FastAPI(title="ICP Taxonomy Policy Evaluator", version="0.1.0", lifespan=lifespan)

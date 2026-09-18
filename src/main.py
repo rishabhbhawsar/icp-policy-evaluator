@@ -1,7 +1,8 @@
 """src/main.py
 
 FastAPI composition root. Wires OpenAIJudgeClient + PolicyEvaluator to the
-real aiosqlite-backed LedgerWriter/CacheBackend (persistence.py). No real
+real aiosqlite-backed LedgerWriter/CacheBackend (persistence.py), driven
+by a centralized Pydantic Settings layer (config.py). No real
 policy-registry store exists yet, so TaxonomyRepository remains an
 in-memory stand-in seeded with demo data -- swap it for a real repository
 without touching evaluator.py or these routes.
@@ -18,7 +19,6 @@ Error mapping:
 from __future__ import annotations
 
 import logging
-import os
 from contextlib import asynccontextmanager
 from datetime import date, datetime
 from typing import Literal
@@ -28,6 +28,7 @@ from fastapi.responses import JSONResponse, RedirectResponse
 from openai import OpenAIError
 from pydantic import BaseModel, ConfigDict, Field
 
+from src.core.config import get_settings
 from src.models.taxonomy import (
     ComplianceRule,
     EvaluationResult,
@@ -46,9 +47,6 @@ from src.services.openai_client import JudgeRefusalError, JudgeTruncationError, 
 from src.services.persistence import SQLiteCacheBackend, SQLiteLedgerWriter
 
 logger = logging.getLogger(__name__)
-
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
-DATABASE_PATH = os.environ.get("DATABASE_PATH", "compliance.db")
 
 _POLICY_ID_PATTERN = r"^[A-Z]{2,10}-\d{3}$"
 
@@ -123,9 +121,17 @@ class HealthResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    judge_client = OpenAIJudgeClient(api_key=OPENAI_API_KEY)
-    ledger = await SQLiteLedgerWriter.create(DATABASE_PATH)
-    cache = await SQLiteCacheBackend.create(DATABASE_PATH)
+    settings = get_settings()
+    
+    # Safely extract unwrapped API token from the SecretStr container
+    api_key_str = settings.openai_api_key.get_secret_value()
+    
+    judge_client = OpenAIJudgeClient(
+        api_key=api_key_str,
+        model=settings.openai_model
+    )
+    ledger = await SQLiteLedgerWriter.create(settings.database_path)
+    cache = await SQLiteCacheBackend.create(settings.database_path)
 
     app.state.judge_client = judge_client
     app.state.ledger = ledger
@@ -135,6 +141,8 @@ async def lifespan(app: FastAPI):
         taxonomy_repo=InMemoryTaxonomyRepository(_SEED_POLICIES),
         cache=cache,
         ledger=ledger,
+        cache_ttl_seconds=settings.cache_ttl_seconds,
+        batch_concurrency=settings.batch_concurrency_limit,
     )
 
     yield
@@ -164,6 +172,7 @@ async def handle_policy_not_found(request: Request, exc: PolicyNotFoundError) ->
     return JSONResponse(status_code=404, content={"error": "policy_not_found", "detail": str(exc)})
 
 
+@app.exception_handler(AppException := JudgeRefusalError)
 @app.exception_handler(JudgeRefusalError)
 async def handle_judge_refusal(request: Request, exc: JudgeRefusalError) -> JSONResponse:
     return JSONResponse(status_code=422, content={"error": "judge_refusal", "detail": str(exc)})
@@ -200,10 +209,12 @@ async def root() -> RedirectResponse:
 
 @app.get("/health", response_model=HealthResponse)
 async def health() -> HealthResponse:
+    settings = get_settings()
+    has_api_key = bool(settings.openai_api_key.get_secret_value())
     return HealthResponse(
-        status="ok" if OPENAI_API_KEY else "degraded",
+        status="ok" if has_api_key else "degraded",
         timestamp=datetime.utcnow(),
-        openai_configured=bool(OPENAI_API_KEY),
+        openai_configured=has_api_key,
     )
 
 

@@ -123,7 +123,12 @@ class PolicyEvaluator:
             return cached
 
         system_prompt = self._build_system_prompt(policy)
-        result = await self._client.evaluate(system_prompt=system_prompt, user_prompt=description)
+        result = await self._client.evaluate(
+            system_prompt=system_prompt,
+            user_prompt=description,
+            policy_id=policy.policy_id,
+            locale=policy.locale,
+        )
 
         await self._ledger.record(cache_key=cache_key, business_description=description, result=result)
         await self._cache.set(cache_key, result, self._cache_ttl_seconds)

@@ -1,0 +1,10 @@
+.env
+*.db
+*.db-wal
+*.db-shm
+*.txt
+discover.py
+__pycache__/
+.pytest_cache/
+.venv/
+.vscode/

@@ -1,19 +1,21 @@
 """src/main.py
 
-FastAPI composition root. Wires OpenAIJudgeClient + PolicyEvaluator to the
-real aiosqlite-backed LedgerWriter/CacheBackend (persistence.py), driven
-by a centralized Pydantic Settings layer (config.py). No real
-policy-registry store exists yet, so TaxonomyRepository remains an
-in-memory stand-in seeded with demo data -- swap it for a real repository
-without touching evaluator.py or these routes.
+FastAPI composition root. Reads all configuration through get_settings()
+(src/core/config.py) rather than raw os.environ lookups. Wires
+OpenAIJudgeClient + PolicyEvaluator to the real aiosqlite-backed
+LedgerWriter/CacheBackend (persistence.py). No real policy-registry store
+exists yet, so TaxonomyRepository remains an in-memory stand-in seeded with
+demo data -- swap it for a real repository without touching evaluator.py or
+these routes.
 
 Error mapping:
-  EmptyInputError      -> 422  (syntactically valid request, semantically empty content)
-  PolicyNotFoundError  -> 404  (referenced resource does not exist)
-  JudgeRefusalError    -> 422  (model declined to classify the content)
-  JudgeTruncationError -> 500  (server-side token-budget misconfiguration, not client fault)
-  OpenAIError          -> 502  (upstream dependency failure, retries already exhausted)
-  Exception (catch-all)-> 500  (never leak raw tracebacks to the client)
+  EmptyInputError         -> 422  (syntactically valid request, semantically empty content)
+  PolicyNotFoundError     -> 404  (referenced resource does not exist)
+  JudgeRefusalError       -> 422  (model declined to classify the content)
+  JudgeSchemaViolationError -> 422  (model output was valid JSON but failed schema validation)
+  JudgeTruncationError    -> 500  (server-side token-budget misconfiguration, not client fault)
+  OpenAIError             -> 502  (upstream dependency failure, retries already exhausted)
+  Exception (catch-all)   -> 500  (never leak raw tracebacks to the client)
 """
 
 from __future__ import annotations
@@ -43,7 +45,12 @@ from src.services.evaluator import (
     PolicyEvaluator,
     PolicyNotFoundError,
 )
-from src.services.openai_client import JudgeRefusalError, JudgeTruncationError, OpenAIJudgeClient
+from src.services.openai_client import (
+    JudgeRefusalError,
+    JudgeSchemaViolationError,
+    JudgeTruncationError,
+    OpenAIJudgeClient,
+)
 from src.services.persistence import SQLiteCacheBackend, SQLiteLedgerWriter
 
 logger = logging.getLogger(__name__)
@@ -122,17 +129,16 @@ class HealthResponse(BaseModel):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     settings = get_settings()
-    
-    # Safely extract unwrapped API token from the SecretStr container
-    api_key_str = settings.openai_api_key.get_secret_value()
-    
+
     judge_client = OpenAIJudgeClient(
-        api_key=api_key_str,
-        model=settings.openai_model
+        api_key=settings.openai_api_key.get_secret_value(),
+        model=settings.openai_model,
+        base_url=settings.openai_base_url,
     )
     ledger = await SQLiteLedgerWriter.create(settings.database_path)
     cache = await SQLiteCacheBackend.create(settings.database_path)
 
+    app.state.settings = settings
     app.state.judge_client = judge_client
     app.state.ledger = ledger
     app.state.cache = cache
@@ -172,21 +178,26 @@ async def handle_policy_not_found(request: Request, exc: PolicyNotFoundError) ->
     return JSONResponse(status_code=404, content={"error": "policy_not_found", "detail": str(exc)})
 
 
-@app.exception_handler(AppException := JudgeRefusalError)
 @app.exception_handler(JudgeRefusalError)
 async def handle_judge_refusal(request: Request, exc: JudgeRefusalError) -> JSONResponse:
     return JSONResponse(status_code=422, content={"error": "judge_refusal", "detail": str(exc)})
 
 
+@app.exception_handler(JudgeSchemaViolationError)
+async def handle_judge_schema_violation(request: Request, exc: JudgeSchemaViolationError) -> JSONResponse:
+    logger.warning("judge output failed schema validation after local retries: %s", exc)
+    return JSONResponse(status_code=422, content={"error": "judge_schema_violation", "detail": str(exc)})
+
+
 @app.exception_handler(JudgeTruncationError)
 async def handle_judge_truncation(request: Request, exc: JudgeTruncationError) -> JSONResponse:
-    logger.error("judge truncation (raise max_completion_tokens): %s", exc)
+    logger.error("judge truncation (raise max_tokens): %s", exc)
     return JSONResponse(status_code=500, content={"error": "judge_truncation", "detail": str(exc)})
 
 
 @app.exception_handler(OpenAIError)
 async def handle_openai_error(request: Request, exc: OpenAIError) -> JSONResponse:
-    logger.error("upstream openai error after retries exhausted: %s", exc)
+    logger.error("upstream provider error after retries exhausted: %s", exc)
     return JSONResponse(
         status_code=502,
         content={"error": "upstream_unavailable", "detail": "the judge model is temporarily unavailable"},
@@ -208,13 +219,13 @@ async def root() -> RedirectResponse:
 
 
 @app.get("/health", response_model=HealthResponse)
-async def health() -> HealthResponse:
-    settings = get_settings()
-    has_api_key = bool(settings.openai_api_key.get_secret_value())
+async def health(request: Request) -> HealthResponse:
+    settings = request.app.state.settings
+    configured = bool(settings.openai_api_key.get_secret_value())
     return HealthResponse(
-        status="ok" if has_api_key else "degraded",
+        status="ok" if configured else "degraded",
         timestamp=datetime.utcnow(),
-        openai_configured=has_api_key,
+        openai_configured=configured,
     )
 
 

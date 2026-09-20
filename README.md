@@ -12,7 +12,7 @@ Running compliance decisions through a raw LLM call, one request at a time, intr
 - **Latency.** A judge call that synchronously blocks on network I/O does not scale past a handful of concurrent requests before the event loop backs up.
 - **Trust.** LLM output is not guaranteed to be structurally valid JSON, semantically consistent with itself, or free of fabricated metadata — a model asked to report its own name or an audit ID will readily invent one.
 
-This framework addresses all three concerns. A content-hashed local cache eliminates redundant judge calls, and this is demonstrated rather than assumed (see §3). `asyncio`-bounded concurrency keeps batch throughput predictable under a configurable request-in-flight ceiling. Every judge response is validated against a strict Pydantic contract before it is trusted anywhere downstream.
+This framework addresses all three concerns. A content-hashed local cache eliminates redundant judge calls. `asyncio`-bounded concurrency keeps batch throughput predictable under a configurable request-in-flight ceiling. Every judge response is validated against a strict Pydantic contract before it is trusted anywhere downstream.
 
 ## 2. Core Technical Stack
 
@@ -65,18 +65,18 @@ PolicyEvaluator.evaluate()
 EvaluationResult → FastAPI response_model → client
 ```
 
-**Batch path (`POST /batch`):** the same six steps, fanned out per item via `asyncio.gather()`, bounded by an `asyncio.Semaphore(batch_concurrency_limit)`. This was verified under test to cap concurrent in-flight judge calls at exactly the configured limit, rather than merely intended to. A single item's failure (bad input, provider error) is returned as a typed per-item failure, not raised — one bad row in a batch of 100 does not lose the other 99 results.
+**Batch path (`POST /batch`):** the same six steps, fanned out per item via `asyncio.gather()`, bounded by an `asyncio.Semaphore(batch_concurrency_limit)`. This was verified under test to cap concurrent in-flight judge calls at exactly the configured limit. A single item's failure (bad input, provider error) is returned as a typed per-item failure, not raised — one bad row in a batch of 100 does not lose the other 99 results.
 
-**Cache effectiveness is demonstrated, not assumed.** Two consecutive runs of the integration harness against unchanged input produced zero new judge calls and zero new ledger rows on the second run. A full fresh pair of judge calls and ledger writes followed immediately after the cache was cleared. Both branches of the cache logic were observed live against a real provider, not mocked.
+Two consecutive runs of the integration harness against unchanged input produced zero new judge calls and zero new ledger rows on the second run. A full fresh pair of judge calls and ledger writes followed immediately after the cache was cleared, confirming both branches of the cache logic against a live provider.
 
 ## 4. Local Defensive Guardrails
 
-- **Input validated before egress.** A whitespace-only description never reaches the network — confirmed under test (zero judge-client calls made) before it was ever trusted in production.
+- **Input validated before egress.** A whitespace-only description never reaches the network. This was confirmed under test — zero judge-client calls made.
 - **Strict Pydantic contracts everywhere.** `extra="forbid"` on every schema catches hallucinated fields; regex-constrained IDs; a bounded `confidence: float` (0.0–1.0); cross-field validators (a `COMPLIANT` result cannot simultaneously carry violated rule IDs; a `PROHIBITED`-risk rule cannot define a disclosure escape hatch).
 - **Retry classified by failure type, not blanket-retried.** Transient upstream errors (rate limits, timeouts, 5xx) get exponential backoff with jitter, capped at 5 attempts, then re-raised as a real error rather than retried indefinitely. Structural failures (a safety refusal, a token-truncated response) are *not* retried, since retrying does not change a guaranteed-repeat outcome.
 - **Typed exception → HTTP status mapping**, so a client receives a clean `404`/`422`/`502` with a machine-readable error body instead of a raw traceback.
 
-**Known limitation, stated plainly rather than omitted:** `/evaluate` and `/batch` currently have no authentication or rate limiting. That is an acceptable posture for a portfolio demo behind a free-tier Swagger UI, but it is a real gap that would need closing before any actual production traffic.
+**Known limitation:** `/evaluate` and `/batch` currently have no authentication or rate limiting. That is an acceptable posture for a demo behind a free-tier Swagger UI, but it is a real gap that would need closing before any actual production traffic.
 
 ## 5. How to Run & Reproduce
 
@@ -116,9 +116,9 @@ uvicorn src.main:app --reload
 # then open http://127.0.0.1:8000/docs
 ```
 
-## 6. Measured Baseline (not a placeholder)
+## 6. Measured Baseline
 
-The numbers below are from an actual run of `tests/evaluation_runner.py` against a live provider, not target figures decided in advance. See the confusion matrix for the full methodology.
+Results from `tests/evaluation_runner.py` against a live provider.
 
 | Metric | Value |
 |---|---|
@@ -129,16 +129,16 @@ The numbers below are from an actual run of `tests/evaluation_runner.py` against
 
 **Confusion matrix:** TP=7, TN=14, FP=0, FN=2 (n=23)
 
-**Methodology and honest limits:**
+**Methodology and limits:**
 - Single policy (`KYC-014`, beneficial-ownership disclosure), single locale (`US`), single model/provider snapshot.
-- n=23 is enough to see a real spread of outcomes — it is not a 4-case coin flip — but it is **not** large enough for a statistically tight confidence interval. One flipped case moves accuracy by roughly 4 points.
-- **Zero observed false positives is not the same claim as a proven zero false-positive rate.** With 0 events in 14 negative-labeled trials, a true FP rate as high as roughly 20% would still be statistically consistent with what was observed. The honest claim is: *in this test set, the judge never approved a case it should have rejected* — not that this property is proven to hold in general.
-- Both false negatives were individually inspected, not just counted. One (`shell_trust_fully_disclosed`) arguably reflects the judge applying a stricter beneficial-ownership standard than the test label assumed. The other (`risky_surface_frontier_credit_disclosed`) was the one case in its group relying on self-reported disclosure with no independent verification clause, suggesting the judge weights corroborated evidence over bare assertion.
-- This baseline should be re-run and expanded (more cases per class, ideally scored by more than one rater) before being cited as a fixed, load-bearing number.
+- n=23 is enough to see a real spread of outcomes, but it is not large enough for a statistically tight confidence interval. One flipped case moves accuracy by roughly 4 points.
+- Zero observed false positives is not the same claim as a proven zero false-positive rate. With 0 events in 14 negative-labeled trials, a true FP rate as high as roughly 20% would still be statistically consistent with what was observed. The fair claim is that in this test set, the judge never approved a case it should have rejected — not that this property holds in general.
+- Both false negatives were inspected individually. One (`shell_trust_fully_disclosed`) reflects the judge applying a stricter beneficial-ownership standard than the test label assumed. The other (`risky_surface_frontier_credit_disclosed`) was the one case in its group relying on self-reported disclosure with no independent verification clause, suggesting the judge weights corroborated evidence over bare assertion.
+- This baseline should be re-run and expanded (more cases per class, ideally scored by more than one rater) before being cited as a fixed number.
 
-## 7. Roadmap: Planned Frontend Layer (Not Yet Implemented)
+## 7. Roadmap: Planned Frontend Layer
 
-Everything below is a stated future direction, not existing functionality. No frontend code exists in this repo yet. Concepts are drawn from Akshay Saini's Frontend System Design (FSD) framing.
+The following is a stated future direction; no frontend code exists in this repo yet.
 
 - **Virtualized list rendering** for the batch-results view, so a large evaluation run (hundreds of rows) does not bloat the DOM or degrade scroll performance.
 - **Debounced input and request deduplication** on any interactive evaluation form, so rapid keystrokes do not fan out redundant calls to `/evaluate`.
@@ -146,4 +146,23 @@ Everything below is a stated future direction, not existing functionality. No fr
 
 ---
 
-*Built incrementally, commit by commit, as a portfolio project demonstrating production backend design for AI-orchestrated systems.*
+## Author
+
+**Rishabh Bhawsar**
+- GitHub: [github.com/rishabhbhawsar](https://github.com/rishabhbhawsar)
+- LinkedIn: [linkedin.com/in/rishabh-bhawsar-409098262](https://www.linkedin.com/in/rishabh-bhawsar-409098262/)
+
+---
+
+## License
+
+MIT License
+
+Copyright (c) 2025 Rishabh Bhawsar
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+

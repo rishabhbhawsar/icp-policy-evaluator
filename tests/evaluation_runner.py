@@ -53,31 +53,207 @@ class LabeledCase:
 
 
 _TEST_MATRIX: list[LabeledCase] = [
+    # --- Shell structures: phrasing deliberately varied per case so there is no
+    # single repeated giveaway phrase correlated with the label ---
     LabeledCase(
-        "standard_full_disclosure",
-        "A small-business lending platform. Sole owner Maria Alonso holds 100% "
-        "equity; beneficial ownership has been disclosed to regulators and is "
-        "documented in onboarding records.",
+        "shell_layered_but_fully_disclosed",
+        "Meridian Capital Holdings Ltd. operates a three-tier structure: the "
+        "Cayman parent wholly owns a BVI trading entity, which wholly owns the "
+        "US operating company. Alistair Chen controls the full equity stack, "
+        "and his identity appears in each tier's regulatory filing, "
+        "cross-referenced against passport records collected at onboarding.",
         expected_compliant=True,
     ),
     LabeledCase(
-        "complex_offshore_but_verified",
-        "A multi-layered corporate holding company with offshore subsidiaries "
-        "across three jurisdictions. All beneficial owners at every layer have "
-        "been identified, verified, and fully disclosed to regulators per "
-        "KYC-014, with notarized ownership charts on file.",
-        expected_compliant=True,
-    ),
-    LabeledCase(
-        "missing_disclosure",
-        "A small business offering short-term commercial loans to local retailers.",
+        "shell_blended_svp_undisclosed",
+        "Solstice Global Partners is a joint venture between three regional "
+        "holding vehicles feeding into a blended special-purpose vehicle. The "
+        "partnership deed submitted with this application leaves the schedule "
+        "for each partner's percentage stake blank, pending a later amendment.",
         expected_compliant=False,
     ),
     LabeledCase(
-        "explicit_non_tracking",
-        "A high-concurrency remittance processor handling cross-border transfers. "
-        "The platform explicitly does not maintain beneficial ownership records "
-        "or any regulatory tracking structures for its corporate clients.",
+        "shell_trust_fully_disclosed",
+        "Northbridge Trust Company administers an irrevocable trust holding "
+        "the entire equity of Northbridge Lending Solutions LLC. The trust "
+        "deed submitted at onboarding names Eleanor Voss as the sole party "
+        "entitled to trust income and corpus, with no other beneficiaries "
+        "listed.",
+        expected_compliant=True,
+    ),
+    LabeledCase(
+        "shell_nominee_directors_deferred",
+        "Cascade Ventures Group's incorporation paperwork across four "
+        "jurisdictions lists only professional nominee directors; none of the "
+        "underlying principals who actually hold equity appear anywhere in "
+        "the documents submitted with this application.",
+        expected_compliant=False,
+    ),
+    LabeledCase(
+        "shell_family_trust_fully_disclosed",
+        "Ironwood Family Office Holdings' beneficiary schedule, filed "
+        "alongside its onboarding packet, names a single individual as "
+        "entitled to the entirety of distributions across all three "
+        "affiliated lending subsidiaries.",
+        expected_compliant=True,
+    ),
+    LabeledCase(
+        "shell_rotating_allocation_undisclosed",
+        "Aurelian Global Structures reassigns equity stakes among affiliated "
+        "principals under a rolling capital allocation strategy. The "
+        "allocation memorandum governing who currently holds what stake is "
+        "referenced in the application but was not attached, and the version "
+        "on file is eleven months out of date.",
+        expected_compliant=False,
+    ),
+    # --- Ambiguous fintech/neobanking: ownership simply never comes up.
+    # Expect REQUIRES_HUMAN_REVIEW, not a confident denial. ---
+    LabeledCase(
+        "neobank_throughput_only",
+        "Flux Neobank operates a cross-border payment corridor connecting SME "
+        "merchants across Southeast Asia and Europe, processing upwards of "
+        "40,000 transactions daily. Its application materials focus entirely "
+        "on throughput, uptime SLAs, and settlement latency benchmarks.",
+        expected_compliant=False,
+    ),
+    LabeledCase(
+        "neobank_marketing_only",
+        "Zenith Pay is a challenger banking platform offering multi-currency "
+        "wallets and instant remittance for freelancers, emphasizing its FX "
+        "spread and 99.98% platform uptime as its core pitch to prospective "
+        "partners.",
+        expected_compliant=False,
+    ),
+    LabeledCase(
+        "neobank_wrong_certifications",
+        "Orbit Financial Technologies provides an embedded-finance API layer "
+        "for e-commerce platforms, highlighting its SOC 2 Type II and "
+        "PCI-DSS Level 1 certifications as its primary trust signals for "
+        "enterprise partners.",
+        expected_compliant=False,
+    ),
+    LabeledCase(
+        "neobank_partnerships_only",
+        "Driftwood Remit facilitates high-frequency micro-remittances for "
+        "migrant worker communities, citing partnerships with four regional "
+        "payment networks and a goal of cutting average fees below 1.5% by "
+        "Q3.",
+        expected_compliant=False,
+    ),
+    LabeledCase(
+        "neobank_infra_only",
+        "Cobalt Card Systems provides white-label prepaid card issuance "
+        "infrastructure for fintech startups, emphasizing rapid BIN "
+        "sponsorship onboarding and a self-service developer dashboard.",
+        expected_compliant=False,
+    ),
+    # --- Explicit decliners: each states outright, in its own words, that it
+    # does not identify who controls the entity. Expect a confident denial. ---
+    LabeledCase(
+        "decliner_privacy_first",
+        "Umbra Pay's onboarding flow never asks a merchant to name a "
+        "controlling shareholder -- no such field exists anywhere in its "
+        "account-creation schema, a design choice the company describes as "
+        "core to its privacy-first architecture.",
+        expected_compliant=False,
+    ),
+    LabeledCase(
+        "decliner_anonymous_p2p",
+        "Nomad Remit Networks lets any node operator register under a wallet "
+        "address alone. The protocol has no mechanism for attaching a "
+        "real-world identity to that address, and the team has stated no "
+        "plans to add one.",
+        expected_compliant=False,
+    ),
+    LabeledCase(
+        "decliner_intentionally_opaque",
+        "Vantablack Financial's submitted paperwork lists its principals only "
+        "as 'Managing Member A' and 'Managing Member B' throughout every "
+        "document, with counsel stating that further identification 'is not "
+        "something the firm provides.'",
+        expected_compliant=False,
+    ),
+    LabeledCase(
+        "decliner_zero_knowledge",
+        "Ghostwire Settlements' network is architected so that no party, "
+        "including the operator itself, can determine who ultimately "
+        "controls any given settlement node.",
+        expected_compliant=False,
+    ),
+    # --- Surface-risky but genuinely compliant: tests whether the judge scores
+    # actual disclosure adequacy or reacts to risk-coded business descriptions ---
+    LabeledCase(
+        "risky_surface_trade_finance_disclosed",
+        "Obsidian Trade Finance Group underwrites high-risk trade finance "
+        "instruments for commodity traders in volatile emerging markets. Its "
+        "shareholder register, submitted with this application, lists one "
+        "individual as holding all outstanding shares, a fact cross-checked "
+        "against the firm's annual regulatory filings.",
+        expected_compliant=True,
+    ),
+    LabeledCase(
+        "risky_surface_offshore_derivatives_disclosed",
+        "Meridian Offshore Capital Markets structures complex leveraged "
+        "derivatives through a Cayman special-purpose vehicle for "
+        "institutional counterparties. Despite the offshore structure, the "
+        "SPV's formation documents name a single individual as its sole "
+        "member, notarized and filed with this application.",
+        expected_compliant=True,
+    ),
+    LabeledCase(
+        "risky_surface_distressed_lending_disclosed",
+        "Tempest Cross-Border Lending extends high-yield bridge financing to "
+        "distressed borrowers in politically volatile markets. Its annual "
+        "filings have named the same individual as sole shareholder every "
+        "year since incorporation, a continuity confirmed against public "
+        "companies-registry records.",
+        expected_compliant=True,
+    ),
+    LabeledCase(
+        "risky_surface_npl_securitization_disclosed",
+        "Blackridge Structured Finance issues asset-backed securities "
+        "collateralized by non-performing loan portfolios bought at deep "
+        "discounts. Ownership of the issuing entity traces to a single named "
+        "individual, confirmed via the notarized incorporation certificate "
+        "attached to this application.",
+        expected_compliant=True,
+    ),
+    LabeledCase(
+        "risky_surface_frontier_credit_disclosed",
+        "Palisade Emerging Markets Credit originates unsecured consumer "
+        "credit in high-default-rate frontier markets with limited credit "
+        "bureau infrastructure. Its cap table, refreshed annually and "
+        "attached here, has listed the same sole shareholder since the "
+        "company's founding.",
+        expected_compliant=True,
+    ),
+    # --- Trap cases: surface cue and correct answer point in opposite
+    # directions. A keyword-matcher fails these even where it passes everything
+    # above; a judge reasoning about the actual >25% threshold should not. ---
+    LabeledCase(
+        "trap_no_individual_above_threshold",
+        "Sterling Cross Capital's onboarding packet names its parent, "
+        "Sterling Holdings PLC, as sole shareholder of record. Sterling "
+        "Holdings PLC is itself a publicly traded company with no single "
+        "shareholder controlling more than 4% of outstanding stock.",
+        expected_compliant=True,
+    ),
+    LabeledCase(
+        "trap_named_minority_unnamed_majority",
+        "Northfield Business Solutions' onboarding file names Robert Guerra "
+        "as holding a 20% equity stake and lists no other shareholders by "
+        "name, though registry records referenced in the application "
+        "indicate the remaining 80% is held via an unnamed 'affiliated "
+        "investment vehicle.'",
+        expected_compliant=False,
+    ),
+    LabeledCase(
+        "trap_disclosure_claimed_elsewhere",
+        "Harrow & Vance Underwriting states that its majority owner 'prefers "
+        "not to be named in commercial documentation' but confirms that full "
+        "ownership records, including notarized identity verification, have "
+        "been lodged directly with the national financial regulator, outside "
+        "the materials submitted with this application.",
         expected_compliant=False,
     ),
 ]

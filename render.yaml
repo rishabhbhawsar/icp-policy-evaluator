@@ -3,10 +3,10 @@ services:
     name: icp-policy-evaluator-backend
     env: python
     plan: free
-    region: singapore
+    region: singapore 
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn src.main:app --host 0.0.0.0 --port $PORT"
-    healthCheckPath: /healthz 
+    healthCheckPath: /healthz
     buildFilter:
       ignorablePaths:
         - "README.md"

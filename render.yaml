@@ -1,0 +1,27 @@
+services:
+  - type: web
+    name: icp-policy-evaluator-backend
+    env: python
+    plan: free
+    region: singapore
+    buildCommand: "pip install -r requirements.txt"
+    startCommand: "uvicorn src.main:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /healthz 
+    buildFilter:
+      ignorablePaths:
+        - "README.md"
+        - "docs/**"
+        - "tests/**"
+        - "scripts/**"
+        - ".gitignore"
+    envVars:
+      - key: OPENAI_BASE_URL
+        value: "https://openrouter.ai"
+      - key: OPENAI_MODEL
+        value: "google/gemini-2.5-flash:free"
+      - key: DATABASE_PATH
+        value: "compliance.db"
+      - key: CACHE_TTL_SECONDS
+        value: "86400"
+      - key: BATCH_CONCURRENCY_LIMIT
+        value: "10"

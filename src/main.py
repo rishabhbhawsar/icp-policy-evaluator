@@ -219,6 +219,7 @@ async def root() -> RedirectResponse:
 
 
 @app.get("/health", response_model=HealthResponse)
+@app.get("/healthz", response_model=HealthResponse)  
 async def health(request: Request) -> HealthResponse:
     settings = request.app.state.settings
     configured = bool(settings.openai_api_key.get_secret_value())

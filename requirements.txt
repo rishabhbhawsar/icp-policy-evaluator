@@ -4,3 +4,6 @@ pydantic>=2.9.0
 pydantic-settings
 openai
 tenacity
+aiosqlite
+python-dotenv
+cryptography

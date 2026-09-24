@@ -18,9 +18,9 @@ Error mapping:
   Exception (catch-all)   -> 500  (never leak raw tracebacks to the client)
 """
 
+from __future__ import annotations
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware  
-from __future__ import annotations
 
 import logging
 from contextlib import asynccontextmanager

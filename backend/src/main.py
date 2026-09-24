@@ -160,6 +160,14 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ICP Taxonomy Policy Evaluator", version="0.1.0", lifespan=lifespan)
 
+# ---- INJECT THIS NEW CORS BLOCK RIGHT HERE ----
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  
+    allow_credentials=True,
+    allow_methods=["*"],  
+    allow_headers=["*"], 
+)
 
 def get_evaluator(request: Request) -> PolicyEvaluator:
     return request.app.state.evaluator

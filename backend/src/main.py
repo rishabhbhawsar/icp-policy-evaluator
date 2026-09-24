@@ -18,6 +18,8 @@ Error mapping:
   Exception (catch-all)   -> 500  (never leak raw tracebacks to the client)
 """
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware  
 from __future__ import annotations
 
 import logging
@@ -160,13 +162,12 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="ICP Taxonomy Policy Evaluator", version="0.1.0", lifespan=lifespan)
 
-# ---- INJECT THIS NEW CORS BLOCK RIGHT HERE ----
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  
-    allow_headers=["*"], 
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 def get_evaluator(request: Request) -> PolicyEvaluator:

@@ -5,19 +5,24 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import type { ChangeEvent, FC } from "react";
 import TelemetryHeader from "@/components/TelemetryHeader";
 
-type LogLevel = "INFO" | "CACHE" | "JUDGE" | "WARN" | "DONE";
+/* ------------------------------------------------------------------ */
+/* Types                                                              */
+/* ------------------------------------------------------------------ */
+
+type LogLevel = "INFO" | "CACHE" | "ERROR" | "DONE";
+type Verdict = "COMPLIANT" | "NON_COMPLIANT" | "UNKNOWN";
 
 interface LogEntry {
-  id: number;
-  timestamp: string;
-  level: LogLevel;
-  message: string;
+  readonly id: number;
+  readonly timestamp: string;
+  readonly level: LogLevel;
+  readonly message: string;
 }
 
-interface LogStep {
-  level: LogLevel;
-  message: string;
-  delayMs: number;
+interface EvaluationResult {
+  readonly verdict: Verdict;
+  readonly raw: unknown;
+  readonly httpStatus: number;
 }
 
 interface IngressPanelProps {
@@ -29,34 +34,107 @@ interface IngressPanelProps {
 }
 
 interface LogTerminalProps {
-  logs: LogEntry[];
+  logs: readonly LogEntry[];
   running: boolean;
 }
+
+interface VerdictPanelProps {
+  result: EvaluationResult | null;
+}
+
+/* ------------------------------------------------------------------ */
+/* Constants                                                          */
+/* ------------------------------------------------------------------ */
+
+const API_BASE_URL: string = (
+  process.env.NEXT_PUBLIC_API_BASE_URL ||
+  "https://icp-policy-evaluator-backend.onrender.com"
+).replace(/\/+$/, "");
+
+const EVALUATE_ENDPOINT = `${API_BASE_URL}/evaluate`;
+
+// Render free-tier instances can take a while to cold start.
+const REQUEST_TIMEOUT_MS = 120_000;
+
+const DEFAULT_PAYLOAD: string = `{
+  "policy_id": "KYC-014",
+  "locale": "US",
+  "business_description": "Enterprise consulting group with explicit beneficial ownership registry documents verified."
+}`;
 
 const LEVEL_STYLES: Record<LogLevel, string> = {
   INFO: "text-cyan-400",
   CACHE: "text-emerald-400",
-  JUDGE: "text-violet-400",
-  WARN: "text-amber-400",
+  ERROR: "text-rose-500",
   DONE: "text-emerald-300",
 };
 
-const SIMULATED_PIPELINE: ReadonlyArray<LogStep> = [
-  { level: "INFO", message: "Request received. Queuing async evaluation task", delayMs: 300 },
-  { level: "INFO", message: "Pydantic Data Contract Verified", delayMs: 500 },
-  { level: "CACHE", message: "Content Hash Match Found - SQLite WAL Read executed in 0.4ms", delayMs: 600 },
-  { level: "INFO", message: "Dispatching concurrent policy checks via asyncio.gather", delayMs: 700 },
-  { level: "JUDGE", message: "Taxonomy policy batch evaluated. Structured JSON schema adhered", delayMs: 900 },
-  { level: "JUDGE", message: "Confidence scores computed for all policy verdicts", delayMs: 600 },
-  { level: "CACHE", message: "Verdict ledger persisted to SQLite (WAL mode)", delayMs: 500 },
-  { level: "DONE", message: "Compliance audit complete", delayMs: 400 },
-];
+const MESSAGE_STYLES: Record<LogLevel, string> = {
+  INFO: "text-zinc-300",
+  CACHE: "text-zinc-300",
+  ERROR: "text-rose-400",
+  DONE: "text-zinc-300",
+};
 
-const PLACEHOLDER_PROFILE =
-  "Paste a business profile here...\n\nExample:\nBusiness: Acme Wellness Ltd\nLocale: en-IN\nCategory: Dietary supplements\nClaims: \"Clinically proven to boost immunity\"";
+/* ------------------------------------------------------------------ */
+/* Helpers                                                            */
+/* ------------------------------------------------------------------ */
 
 const formatTime = (date: Date): string =>
   date.toLocaleTimeString("en-GB", { hour12: false });
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === "object" && value !== null && !Array.isArray(value);
+
+const normalizeVerdict = (value: unknown): Verdict => {
+  if (typeof value === "boolean") {
+    return value ? "COMPLIANT" : "NON_COMPLIANT";
+  }
+  if (typeof value !== "string") return "UNKNOWN";
+
+  const cleaned: string = value.trim().toUpperCase().replace(/[\s-]+/g, "_");
+  if (cleaned === "COMPLIANT") return "COMPLIANT";
+  if (cleaned === "NON_COMPLIANT" || cleaned === "NONCOMPLIANT") {
+    return "NON_COMPLIANT";
+  }
+  return "UNKNOWN";
+};
+
+const extractVerdict = (data: unknown): Verdict => {
+  if (!isRecord(data)) return "UNKNOWN";
+
+  const candidates: unknown[] = [
+    data.verdict,
+    data.status,
+    data.compliance_status,
+    data.is_compliant,
+    isRecord(data.result) ? data.result.verdict : undefined,
+    isRecord(data.result) ? data.result.status : undefined,
+  ];
+
+  for (const candidate of candidates) {
+    const verdict: Verdict = normalizeVerdict(candidate);
+    if (verdict !== "UNKNOWN") return verdict;
+  }
+  return "UNKNOWN";
+};
+
+const describeHttpFailure = (status: number): string => {
+  switch (status) {
+    case 422:
+      return "HTTP 422 Unprocessable Entity | Payload failed backend Pydantic contract validation. Verify keys and value types.";
+    case 404:
+      return "HTTP 404 Not Found | The /evaluate route could not be located on the cloud cluster.";
+    case 502:
+      return "HTTP 502 Bad Gateway | Upstream service is unavailable or still cold-starting. Retry shortly.";
+    default:
+      return `HTTP ${status} | Unexpected response received from the cloud cluster.`;
+  }
+};
+
+/* ------------------------------------------------------------------ */
+/* Components                                                         */
+/* ------------------------------------------------------------------ */
 
 const IngressPanel: FC<IngressPanelProps> = ({
   value,
@@ -72,13 +150,13 @@ const IngressPanel: FC<IngressPanelProps> = ({
   const isEmpty: boolean = value.trim().length === 0;
 
   return (
-    <section className="flex min-h-[520px] flex-col rounded-md border border-[#27272a] bg-[#09090b]">
+    <section className="flex min-h-[420px] flex-col rounded-md border border-[#27272a] bg-[#09090b]">
       <div className="flex items-center justify-between border-b border-[#27272a] px-4 py-3">
         <h2 className="font-mono text-[11px] uppercase tracking-widest text-zinc-400">
           Data Ingress
         </h2>
         <span className="font-mono text-[11px] text-zinc-600">
-          {value.length} chars
+          POST /evaluate &middot; {value.length} chars
         </span>
       </div>
 
@@ -87,7 +165,7 @@ const IngressPanel: FC<IngressPanelProps> = ({
         onChange={handleChange}
         disabled={disabled}
         spellCheck={false}
-        placeholder={PLACEHOLDER_PROFILE}
+        aria-label="JSON payload ingress"
         className="flex-1 resize-none bg-transparent p-4 font-mono text-sm leading-relaxed text-zinc-200 placeholder:text-zinc-700 focus:outline-none disabled:opacity-60"
       />
 
@@ -98,7 +176,7 @@ const IngressPanel: FC<IngressPanelProps> = ({
           disabled={disabled}
           className="rounded border border-[#27272a] px-4 py-2 font-mono text-xs text-zinc-400 transition-colors hover:bg-zinc-900 disabled:opacity-40"
         >
-          Clear
+          Reset
         </button>
         <button
           type="button"
@@ -121,7 +199,7 @@ const LogTerminal: FC<LogTerminalProps> = ({ logs, running }) => {
   }, [logs]);
 
   return (
-    <section className="flex min-h-[520px] flex-col rounded-md border border-[#27272a] bg-[#09090b]">
+    <section className="flex min-h-[420px] flex-col rounded-md border border-[#27272a] bg-[#09090b]">
       <div className="flex items-center justify-between border-b border-[#27272a] px-4 py-3">
         <h2 className="font-mono text-[11px] uppercase tracking-widest text-zinc-400">
           Async Stream Canvas
@@ -139,7 +217,7 @@ const LogTerminal: FC<LogTerminalProps> = ({ logs, running }) => {
       <div className="flex-1 overflow-y-auto p-4 font-mono text-xs leading-6">
         {logs.length === 0 ? (
           <p className="text-zinc-700">
-            $ awaiting input. Submit a business profile to begin.
+            $ awaiting input. Submit a JSON payload to begin.
           </p>
         ) : (
           logs.map((log: LogEntry) => (
@@ -148,7 +226,7 @@ const LogTerminal: FC<LogTerminalProps> = ({ logs, running }) => {
               <span className={`shrink-0 ${LEVEL_STYLES[log.level]}`}>
                 [{log.level}]
               </span>
-              <span className="text-zinc-300">{log.message}</span>
+              <span className={MESSAGE_STYLES[log.level]}>{log.message}</span>
             </div>
           ))
         )}
@@ -158,64 +236,200 @@ const LogTerminal: FC<LogTerminalProps> = ({ logs, running }) => {
   );
 };
 
+const VerdictPanel: FC<VerdictPanelProps> = ({ result }) => {
+  if (result === null) {
+    return (
+      <section className="rounded-md border border-dashed border-[#27272a] bg-[#09090b] p-5">
+        <p className="font-mono text-[11px] uppercase tracking-widest text-zinc-600">
+          Algorithmic Verdict
+        </p>
+        <p className="mt-2 font-mono text-xs text-zinc-700">
+          No evaluation result yet.
+        </p>
+      </section>
+    );
+  }
+
+  const styleByVerdict: Record<Verdict, string> = {
+    COMPLIANT:
+      "border-emerald-500/60 bg-emerald-500/5 text-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.25)]",
+    NON_COMPLIANT:
+      "border-rose-500/60 bg-rose-500/5 text-rose-400 shadow-[0_0_24px_rgba(244,63,94,0.25)]",
+    UNKNOWN: "border-[#27272a] bg-zinc-900/40 text-zinc-400",
+  };
+
+  const label: string =
+    result.verdict === "UNKNOWN" ? "VERDICT UNRECOGNIZED" : result.verdict;
+
+  return (
+    <section
+      className={`rounded-md border p-5 ${styleByVerdict[result.verdict]}`}
+    >
+      <div className="flex items-center justify-between">
+        <p className="font-mono text-[11px] uppercase tracking-widest opacity-70">
+          Algorithmic Verdict
+        </p>
+        <p className="font-mono text-[11px] opacity-70">
+          HTTP {result.httpStatus}
+        </p>
+      </div>
+      <p className="mt-2 font-mono text-2xl font-semibold tracking-tight">
+        {label}
+      </p>
+      <pre className="mt-4 max-h-64 overflow-auto rounded border border-[#27272a] bg-[#09090b] p-3 font-mono text-xs leading-relaxed text-zinc-400">
+        {JSON.stringify(result.raw, null, 2)}
+      </pre>
+    </section>
+  );
+};
+
+/* ------------------------------------------------------------------ */
+/* Page                                                               */
+/* ------------------------------------------------------------------ */
+
 export default function Page() {
-  const [profile, setProfile] = useState<string>("");
+  const [payload, setPayload] = useState<string>(DEFAULT_PAYLOAD);
   const [logs, setLogs] = useState<LogEntry[]>([]);
   const [running, setRunning] = useState<boolean>(false);
-  const timeouts = useRef<ReturnType<typeof setTimeout>[]>([]);
-  const counter = useRef<number>(0);
+  const [result, setResult] = useState<EvaluationResult | null>(null);
 
-  const clearTimers = useCallback((): void => {
-    timeouts.current.forEach((t) => clearTimeout(t));
-    timeouts.current = [];
+  const counter = useRef<number>(0);
+  const controllerRef = useRef<AbortController | null>(null);
+
+  const pushLog = useCallback((level: LogLevel, message: string): void => {
+    counter.current += 1;
+    const entry: LogEntry = {
+      id: counter.current,
+      timestamp: formatTime(new Date()),
+      level,
+      message,
+    };
+    setLogs((prev: LogEntry[]) => [...prev, entry]);
   }, []);
 
-  useEffect(() => clearTimers, [clearTimers]);
+  useEffect(() => {
+    return () => {
+      controllerRef.current?.abort();
+    };
+  }, []);
 
-  const handleSubmit = useCallback((): void => {
-    clearTimers();
-    setLogs([]);
+  const handleSubmit = useCallback(async (): Promise<void> => {
+    setResult(null);
+    pushLog("INFO", "Parsing data ingress text payload...");
+
+    // Pre-flight validation: halt before any network egress.
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(payload);
+      if (!isRecord(parsed)) {
+        throw new Error("Payload root must be a JSON object.");
+      }
+    } catch {
+      pushLog(
+        "ERROR",
+        "Malformed JSON boundary logic. Verify keys match required contract schema."
+      );
+      return;
+    }
+
     setRunning(true);
+    pushLog(
+      "INFO",
+      "Dispatching POST request across internet gateway to cloud cluster..."
+    );
 
-    let elapsed = 0;
-    SIMULATED_PIPELINE.forEach((step: LogStep, index: number) => {
-      elapsed += step.delayMs;
-      const timer = setTimeout(() => {
-        counter.current += 1;
-        const entry: LogEntry = {
-          id: counter.current,
-          timestamp: formatTime(new Date()),
-          level: step.level,
-          message: step.message,
-        };
-        setLogs((prev: LogEntry[]) => [...prev, entry]);
-        if (index === SIMULATED_PIPELINE.length - 1) {
-          setRunning(false);
+    const controller = new AbortController();
+    controllerRef.current = controller;
+    const timeoutId = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+
+        try {
+      const response: Response = await fetch(EVALUATE_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(parsed),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        try {
+          const errBody: unknown = await response.json();
+          const detail: unknown = isRecord(errBody)
+            ? (errBody.detail ?? errBody)
+            : errBody;
+
+          pushLog(
+            "ERROR",
+            `HTTP ${response.status} | Backend validation detail: ${JSON.stringify(detail)}`
+          );
+        } catch {
+          pushLog("ERROR", `HTTP ${response.status} | Server interruption. No JSON error body returned.`);
         }
-      }, elapsed);
-      timeouts.current.push(timer);
-    });
-  }, [clearTimers]);
+        return;
+      }
+
+      let data: unknown;
+      try {
+        data = await response.json();
+      } catch {
+        pushLog(
+          "ERROR",
+          "Response body was not valid JSON. Unable to decode verdict payload."
+        );
+        return;
+      }
+
+      pushLog(
+        "CACHE",
+        "Status: OK | Local SQLite WAL cache ledger read executed cleanly."
+      );
+
+      const verdict: Verdict = extractVerdict(data);
+      setResult({ verdict, raw: data, httpStatus: response.status });
+      pushLog("DONE", `Compliance audit complete | Verdict: ${verdict}`);
+    } catch (err: unknown) {
+      if (err instanceof DOMException && err.name === "AbortError") {
+        pushLog(
+          "ERROR",
+          `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s. The cloud cluster may be cold-starting; retry shortly.`
+        );
+      } else {
+        pushLog(
+          "ERROR",
+          "Network failure | Unable to reach the cloud cluster. Check connectivity or CORS configuration."
+        );
+      }
+    } finally {
+      clearTimeout(timeoutId);
+      controllerRef.current = null;
+      setRunning(false);
+    }
+  }, [payload, pushLog]);
 
   const handleReset = useCallback((): void => {
-    clearTimers();
-    setProfile("");
+    controllerRef.current?.abort();
+    setPayload(DEFAULT_PAYLOAD);
     setLogs([]);
+    setResult(null);
     setRunning(false);
-  }, [clearTimers]);
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#09090b] text-zinc-100">
       <TelemetryHeader />
-      <main className="mx-auto grid max-w-7xl grid-cols-1 gap-6 px-6 py-6 lg:grid-cols-2">
-        <IngressPanel
-          value={profile}
-          disabled={running}
-          onChange={setProfile}
-          onSubmit={handleSubmit}
-          onReset={handleReset}
-        />
-        <LogTerminal logs={logs} running={running} />
+      <main className="mx-auto flex max-w-7xl flex-col gap-6 px-6 py-6">
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
+          <IngressPanel
+            value={payload}
+            disabled={running}
+            onChange={setPayload}
+            onSubmit={() => {
+              void handleSubmit();
+            }}
+            onReset={handleReset}
+          />
+          <LogTerminal logs={logs} running={running} />
+        </div>
+        <VerdictPanel result={result} />
       </main>
     </div>
   );

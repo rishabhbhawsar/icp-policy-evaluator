@@ -42,7 +42,7 @@ from tenacity import (
 
 from src.models.taxonomy import Classification, EvaluationResult, RiskLevel, SupportedLocale
 
-logger = logging.getLogger(__name__)
+logger = logging.getLogger("uvicorn.error")
 
 RETRYABLE_EXCEPTIONS = (RateLimitError, APIConnectionError, APITimeoutError, InternalServerError)
 
@@ -161,7 +161,7 @@ class OpenAIJudgeClient:
                 payload = _JudgmentPayload.model_validate_json(_strip_json_fences(content))
             except (ValidationError, json.JSONDecodeError) as exc:
                 last_error = exc
-                logger.warning("schema validation failed (attempt %d/%d): %s", attempt, _MAX_SCHEMA_ATTEMPTS, exc)
+                logger.warning(f"!!! CRITICAL DEPLOY PATH RUNTIME RUN: base_url={self.client.base_url} !!!")
                 prompt = (
                     system_prompt
                     + "\n\nYour previous response did not match the required JSON schema exactly. "

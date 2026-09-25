@@ -205,13 +205,14 @@ async def handle_judge_truncation(request: Request, exc: JudgeTruncationError) -
 
 
 @app.exception_handler(OpenAIError)
-async def handle_openai_error(request: Request, exc: OpenAIError) -> JSONResponse:
-    logger.error("upstream provider error after retries exhausted: %s", exc)
+async def handle_openai_error(request, exc: OpenAIError):
     return JSONResponse(
         status_code=502,
-        content={"error": "upstream_unavailable", "detail": "the judge model is temporarily unavailable"},
+        content={
+            "error": "upstream_unavailable",
+            "detail": f"Raw Exception Type: {type(exc).__name__} | Message: {str(exc)}"
+        }
     )
-
 
 @app.exception_handler(Exception)
 async def handle_unexpected(request: Request, exc: Exception) -> JSONResponse:

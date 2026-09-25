@@ -207,13 +207,16 @@ async def handle_judge_truncation(request: Request, exc: JudgeTruncationError) -
 
 @app.exception_handler(OpenAIError)
 async def handle_openai_error(request, exc: OpenAIError):
+    logger.error(f"Upstream OpenAI/OpenRouter Fault: {str(exc)}")
+    
     return JSONResponse(
         status_code=502,
         content={
             "error": "upstream_unavailable",
-            "detail": f"Raw Exception Type: {type(exc).__name__} | Message: {str(exc)}"
+            "detail": "The compliance judge model is temporarily experiencing network latency or availability limits. Please retry your request shortly."
         }
     )
+
 
 @app.exception_handler(Exception)
 async def handle_unexpected(request: Request, exc: Exception) -> JSONResponse:

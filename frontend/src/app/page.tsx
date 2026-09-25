@@ -10,7 +10,7 @@ import TelemetryHeader from "@/components/TelemetryHeader";
 /* ------------------------------------------------------------------ */
 
 type LogLevel = "INFO" | "CACHE" | "ERROR" | "DONE";
-type Verdict = "COMPLIANT" | "NON_COMPLIANT" | "UNKNOWN";
+type Verdict = "COMPLIANT" | "NON_COMPLIANT" | "REQUIRES_HUMAN_REVIEW" | "UNKNOWN";
 
 interface LogEntry {
   readonly id: number;
@@ -87,9 +87,6 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
 const normalizeVerdict = (value: unknown): Verdict => {
-  if (typeof value === "boolean") {
-    return value ? "COMPLIANT" : "NON_COMPLIANT";
-  }
   if (typeof value !== "string") return "UNKNOWN";
 
   const cleaned: string = value.trim().toUpperCase().replace(/[\s-]+/g, "_");
@@ -97,6 +94,7 @@ const normalizeVerdict = (value: unknown): Verdict => {
   if (cleaned === "NON_COMPLIANT" || cleaned === "NONCOMPLIANT") {
     return "NON_COMPLIANT";
   }
+  if (cleaned === "REQUIRES_HUMAN_REVIEW") return "REQUIRES_HUMAN_REVIEW";
   return "UNKNOWN";
 };
 
@@ -104,12 +102,11 @@ const extractVerdict = (data: unknown): Verdict => {
   if (!isRecord(data)) return "UNKNOWN";
 
   const candidates: unknown[] = [
+    data.classification,
     data.verdict,
     data.status,
     data.compliance_status,
-    data.is_compliant,
-    isRecord(data.result) ? data.result.verdict : undefined,
-    isRecord(data.result) ? data.result.status : undefined,
+    isRecord(data.result) ? data.result.classification : undefined,
   ];
 
   for (const candidate of candidates) {
@@ -250,11 +247,13 @@ const VerdictPanel: FC<VerdictPanelProps> = ({ result }) => {
     );
   }
 
-  const styleByVerdict: Record<Verdict, string> = {
+    const styleByVerdict: Record<Verdict, string> = {
     COMPLIANT:
       "border-emerald-500/60 bg-emerald-500/5 text-emerald-400 shadow-[0_0_24px_rgba(16,185,129,0.25)]",
     NON_COMPLIANT:
       "border-rose-500/60 bg-rose-500/5 text-rose-400 shadow-[0_0_24px_rgba(244,63,94,0.25)]",
+    REQUIRES_HUMAN_REVIEW:
+      "border-amber-500/60 bg-amber-500/5 text-amber-400 shadow-[0_0_24px_rgba(245,158,11,0.25)]",
     UNKNOWN: "border-[#27272a] bg-zinc-900/40 text-zinc-400",
   };
 

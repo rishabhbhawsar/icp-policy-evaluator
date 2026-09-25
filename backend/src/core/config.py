@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     openai_api_key: SecretStr = SecretStr("")
     openai_model: str = "meta-llama/llama-3-8b-instruct:free"
-    openai_base_url: str = "https://openrouter.ai"
+    openai_base_url: str = "https://openrouter.ai/api/v1"
     database_path: str = "compliance.db"
     
     # Restoring the critical orchestrator framework properties

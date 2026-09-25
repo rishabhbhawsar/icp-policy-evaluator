@@ -136,6 +136,7 @@ async def lifespan(app: FastAPI):
         api_key=settings.openai_api_key.get_secret_value(),
         model=settings.openai_model,
         base_url=settings.openai_base_url,
+        max_tokens=settings.judge_max_tokens,
     )
     ledger = await SQLiteLedgerWriter.create(settings.database_path)
     cache = await SQLiteCacheBackend.create(settings.database_path)

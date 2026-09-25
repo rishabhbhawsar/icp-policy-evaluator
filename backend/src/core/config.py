@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     openai_model: str = "meta-llama/llama-3-8b-instruct:free"
     openai_base_url: str = "https://openrouter.ai/api/v1"
     database_path: str = "compliance.db"
+
+    judge_max_tokens: int = 2000
     
     # Restoring the critical orchestrator framework properties
     cache_ttl_seconds: int = 86400

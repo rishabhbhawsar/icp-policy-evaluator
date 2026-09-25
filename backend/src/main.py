@@ -204,25 +204,25 @@ async def handle_judge_truncation(request: Request, exc: JudgeTruncationError) -
     logger.error("judge truncation (raise max_tokens): %s", exc)
     return JSONResponse(status_code=500, content={"error": "judge_truncation", "detail": str(exc)})
 
-
 @app.exception_handler(OpenAIError)
-async def handle_openai_error(request, exc: OpenAIError):
-    logger.error(f"Upstream OpenAI/OpenRouter Fault: {str(exc)}")
-    
+async def handle_openai_error(request: Request, exc: OpenAIError) -> JSONResponse:
+    logger.error("upstream provider error after retries exhausted: %s", exc)
     return JSONResponse(
         status_code=502,
         content={
             "error": "upstream_unavailable",
-            "detail": "The compliance judge model is temporarily experiencing network latency or availability limits. Please retry your request shortly."
-        }
+            "detail": "The compliance judge model is temporarily experiencing network latency or availability limits. Please retry your request shortly.",
+        },
     )
 
 
 @app.exception_handler(Exception)
 async def handle_unexpected(request: Request, exc: Exception) -> JSONResponse:
     logger.exception("unhandled exception")
-    return JSONResponse(status_code=500, content={"error": "internal_error", "detail": "an unexpected error occurred"})
-
+    return JSONResponse(
+        status_code=500,
+        content={"error": "internal_error", "detail": "an unexpected error occurred"},
+    )
 
 # --- routes ---
 

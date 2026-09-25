@@ -377,9 +377,12 @@ export default function Page() {
         return;
       }
 
+      const cacheHit: boolean = isRecord(data) && data.cache_hit === true;
       pushLog(
-        "CACHE",
-        "Status: OK | Local SQLite WAL cache ledger read executed cleanly."
+        cacheHit ? "CACHE" : "INFO",
+        cacheHit
+          ? "Status: OK | Local SQLite WAL cache ledger read executed cleanly."
+          : "Judge model invoked. No cache entry found for this payload."
       );
 
       const verdict: Verdict = extractVerdict(data);

@@ -183,6 +183,8 @@ class EvaluationResult(BaseModel):
     model_name: str
     evaluated_at: datetime = Field(default_factory=datetime.utcnow)
 
+    cache_hit: bool = False
+
     @field_validator("violated_rule_ids")
     @classmethod
     def _dedupe_and_sort_violations(cls, v: list[str]) -> list[str]:

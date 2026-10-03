@@ -145,7 +145,14 @@ def call_evaluate(base_url: str, case: BenchmarkCase) -> dict:
 
 
 def compute_metrics(rows: list[dict]) -> dict:
-    graded_rows = [r for r in rows if r["graded"]]
+    total_requests = len(rows)
+    failed_requests = sum(1 for r in rows if r["predicted"] == "ERROR")
+    request_success_rate = (
+        (total_requests - failed_requests) / total_requests if total_requests else None
+    )
+
+    graded_rows = [r for r in rows if r["graded"] and r["predicted"] != "ERROR"]
+    excluded_by_design = sum(1 for r in rows if not r["graded"])
 
     confusion: dict[str, dict[str, int]] = {c: {c2: 0 for c2 in CLASSES} for c in CLASSES}
     for row in graded_rows:
@@ -176,9 +183,11 @@ def compute_metrics(rows: list[dict]) -> dict:
         "headline_recall": headline["recall"],
         "accuracy": accuracy,
         "graded_case_count": total_graded,
-        "ungraded_case_count": len(rows) - total_graded,
+        "ungraded_case_count": excluded_by_design,
+        "request_success_rate": request_success_rate,
+        "failed_request_count": failed_requests,
+        "total_request_count": total_requests,
     }
-
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)

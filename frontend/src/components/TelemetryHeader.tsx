@@ -85,8 +85,8 @@ const CacheStatusBadge: FC<CacheStatusBadgeProps> = ({
       </span>
       <span className="font-mono text-sm text-zinc-200">{label}</span>
     </div>
-    <span className="font-mono text-xs text-emerald-400">
-      ({efficiency} Efficiency)
+    <span className="font-mono text-xs text-zinc-500">
+      {efficiency}
     </span>
   </div>
 );
@@ -94,7 +94,7 @@ const CacheStatusBadge: FC<CacheStatusBadgeProps> = ({
 const TelemetryHeader: FC<TelemetryHeaderProps> = ({
   precision = "1.000",
   recall = "0.778",
-  cacheEfficiency = "100%",
+  cacheEfficiency = "Verified under test — see README",
   cacheActive = true,
 }) => {
   return (
@@ -110,21 +110,21 @@ const TelemetryHeader: FC<TelemetryHeaderProps> = ({
             </h1>
           </div>
           <p className="font-mono text-xs text-zinc-500">
-            Async LLM-as-a-Judge &middot; Live Telemetry
+            Async LLM-as-a-Judge &middot; Baseline Metrics
           </p>
         </div>
 
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+                <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
           <MetricCard
             label="Precision"
             value={precision}
-            caption="Validated against benchmark set"
+            caption="Baseline · n=23 · see README"
             tone="emerald"
           />
           <MetricCard
             label="Recall"
             value={recall}
-            caption="Validated against benchmark set"
+            caption="Baseline · n=23 · see README"
             tone="cyan"
           />
           <CacheStatusBadge
@@ -133,6 +133,10 @@ const TelemetryHeader: FC<TelemetryHeaderProps> = ({
             active={cacheActive}
           />
         </div>
+
+        <p className="font-mono text-[10px] text-zinc-600">
+          Metrics from <code className="text-zinc-400">tests/evaluation_runner.py</code> — full methodology and limits in the repo README.
+        </p>
       </div>
     </header>
   );

@@ -24,7 +24,7 @@ This framework addresses all three concerns. A content-hashed local cache elimin
 | Retry/backoff | **Tenacity** | Exponential backoff with jitter on transient upstream failures (429/5xx/timeout), capped and re-raised on exhaustion rather than retried forever. |
 | Persistence | **SQLite (via `aiosqlite`), WAL mode** | Zero-infrastructure, free-tier-deployable audit ledger and cache, sharing one file across two connections without one blocking the other. |
 | Config | **pydantic-settings** | Typed, `.env`-driven settings (API key as `SecretStr`, base URL, model, cache TTL, batch concurrency). No credentials or endpoints hardcoded in application code. |
-| Current LLM provider | **OpenRouter** (OpenAI-compatible gateway) | Free-tier access to a broad model catalog behind one API shape; swappable via a single config value rather than a code change. |
+| Current LLM provider | **Credex-LLM** (OpenAI-compatible gateway) | Provider-agnostic by design. Base URL, key, and model name are all config-driven; swapping providers is a config change, not a code change. |
 | Deployment target | **Render** (free Web Service) or **Hugging Face Spaces** (Docker) | SQLite requires no external managed database, keeping the whole stack inside a free tier. |
 | ASGI server | **Uvicorn** | Standard ASGI server for running the FastAPI app in both local development and deployment. |
 
@@ -131,6 +131,7 @@ Results from `tests/evaluation_runner.py` against a live provider.
 
 **Methodology and limits:**
 - Single policy (`KYC-014`, beneficial-ownership disclosure), single locale (`US`), single model/provider snapshot.
+- Provider snapshot: metrics above were captured against OpenRouter + `google/gemini-2.5-flash`. Re-running against the current provider (Credex + `openai-gpt-5.6-sol`) is the next verification step; the expected shape of results should be similar, but exact numbers may shift.
 - n=23 is enough to see a real spread of outcomes, but it is not large enough for a statistically tight confidence interval. One flipped case moves accuracy by roughly 4 points.
 - Zero observed false positives is not the same claim as a proven zero false-positive rate. With 0 events in 14 negative-labeled trials, a true FP rate as high as roughly 20% would still be statistically consistent with what was observed. The fair claim is that in this test set, the judge never approved a case it should have rejected — not that this property holds in general.
 - Both false negatives were inspected individually. One (`shell_trust_fully_disclosed`) reflects the judge applying a stricter beneficial-ownership standard than the test label assumed. The other (`risky_surface_frontier_credit_disclosed`) was the one case in its group relying on self-reported disclosure with no independent verification clause, suggesting the judge weights corroborated evidence over bare assertion.

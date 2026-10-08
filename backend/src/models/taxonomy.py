@@ -21,7 +21,7 @@ under.
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Literal
 from uuid import UUID, uuid4
@@ -181,7 +181,7 @@ class EvaluationResult(BaseModel):
         ..., min_length=1, max_length=1000, description="Capped to keep the ledger bounded and the judge concise."
     )
     model_name: str
-    evaluated_at: datetime = Field(default_factory=datetime.utcnow)
+    evaluated_at: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     cache_hit: bool = False
 
@@ -191,9 +191,38 @@ class EvaluationResult(BaseModel):
         return sorted(set(v))
 
     @model_validator(mode="after")
-    def _classification_consistent_with_violations(self) -> "EvaluationResult":
-        if self.classification == Classification.COMPLIANT and self.violated_rule_ids:
-            raise ValueError("COMPLIANT classification cannot carry violated_rule_ids")
-        if self.classification == Classification.NON_COMPLIANT and not self.violated_rule_ids:
-            raise ValueError("NON_COMPLIANT classification must cite at least one violated_rule_id")
+    def _risk_level_consistent_with_classification(self) -> "EvaluationResult":
+        """Risk level must match the semantic meaning of the classification.
+
+        COMPLIANT means the item passed every rule -- residual risk is LOW by
+        definition. NON_COMPLIANT means at least one rule was violated --
+        that's HIGH or PROHIBITED risk. REQUIRES_HUMAN_REVIEW sits in between.
+
+        Without this, the judge can emit COMPLIANT + HIGH, which is internally
+        contradictory and useless to a downstream auditor.
+        """
+        if (
+            self.classification == Classification.COMPLIANT
+            and self.risk_level != RiskLevel.LOW
+        ):
+            raise ValueError(
+                "COMPLIANT classification requires risk_level=LOW "
+                f"(got {self.risk_level.value})"
+            )
+        if (
+            self.classification == Classification.NON_COMPLIANT
+            and self.risk_level not in (RiskLevel.HIGH, RiskLevel.PROHIBITED)
+        ):
+            raise ValueError(
+                "NON_COMPLIANT classification requires risk_level=HIGH or PROHIBITED "
+                f"(got {self.risk_level.value})"
+            )
+        if (
+            self.classification == Classification.REQUIRES_HUMAN_REVIEW
+            and self.risk_level != RiskLevel.MEDIUM
+        ):
+            raise ValueError(
+                "REQUIRES_HUMAN_REVIEW classification requires risk_level=MEDIUM "
+                f"(got {self.risk_level.value})"
+            )
         return self

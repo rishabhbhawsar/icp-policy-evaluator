@@ -32,7 +32,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_CACHE_TTL_SECONDS = 60 * 60 * 24  # 24h; the policy version is already part of the cache key.
 # A rule change invalidates via key change, not via TTL expiry.
 # TTL only bounds cache growth.
-DEFAULT_BATCH_CONCURRENCY = 10
+DEFAULT_BATCH_CONCURRENCY = 3
 
 
 class TaxonomyRepository(Protocol):
@@ -142,17 +142,23 @@ class PolicyEvaluator:
             for rule in policy.rules
         ]
 
-        return (
+        instruction_lines = [
             f"You are a compliance judge for policy {policy.policy_id} "
             f"(category={policy.category.value}, "
-            f"locale={policy.locale.value}, version={policy.version}).\n"
-            "Evaluate the business description strictly against these rules:\n"
-            + "\n".join(rule_lines)
-            + "\nCite every violated rule_id explicitly. "
-            "Do not invent rules outside this list. "
+            f"locale={policy.locale.value}, version={policy.version}).",
+            "Evaluate the business description strictly against these rules:",
+            "\n".join(rule_lines),
+            "Cite every violated rule_id explicitly.",
+            "Do not invent rules outside this list.",
             "If the description lacks enough information to judge with confidence, "
-            "classify as REQUIRES_HUMAN_REVIEW rather than guessing."
-        )
+            "classify as REQUIRES_HUMAN_REVIEW rather than guessing.",
+            "RISK LEVEL MUST BE CONSISTENT WITH CLASSIFICATION:",
+            "  - COMPLIANT            -> risk_level = LOW",
+            "  - REQUIRES_HUMAN_REVIEW -> risk_level = MEDIUM",
+            "  - NON_COMPLIANT        -> risk_level = HIGH or PROHIBITED",
+            "Do not assign HIGH risk to a COMPLIANT classification.",
+        ]
+        return "\n".join(instruction_lines)
 
     async def evaluate(
         self,

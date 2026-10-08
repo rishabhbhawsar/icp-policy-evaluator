@@ -93,7 +93,7 @@ const CacheStatusBadge: FC<CacheStatusBadgeProps> = ({
 
 const TelemetryHeader: FC<TelemetryHeaderProps> = ({
   precision = "1.000",
-  recall = "0.778",
+  recall = "0.818",
   cacheEfficiency = "Verified under test — see README",
   cacheActive = true,
 }) => {

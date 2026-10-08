@@ -157,6 +157,11 @@ class PolicyEvaluator:
             "  - REQUIRES_HUMAN_REVIEW -> risk_level = MEDIUM",
             "  - NON_COMPLIANT        -> risk_level = HIGH or PROHIBITED",
             "Do not assign HIGH risk to a COMPLIANT classification.",
+            "PUBLIC COMPANY EXEMPTION: If an entity holding >25% is a publicly "
+            "listed company (e.g., NASDAQ, NYSE, LSE), beneficial ownership "
+            "disclosure is not required for that holding, because public "
+            "filings already disclose ownership. In this case, the entity "
+            "is COMPLIANT unless another rule is violated.\n\n"
         ]
         return "\n".join(instruction_lines)
 

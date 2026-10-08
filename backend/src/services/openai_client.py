@@ -46,7 +46,7 @@ logger = logging.getLogger("uvicorn.error")
 
 RETRYABLE_EXCEPTIONS = (RateLimitError, APIConnectionError, APITimeoutError, InternalServerError)
 
-DEFAULT_MODEL = "gpt-4o-2024-08-06"
+DEFAULT_MODEL = "openai-gpt-5.6-sol"
 _MAX_SCHEMA_ATTEMPTS = 2  # local retries for "valid JSON, wrong shape" -- separate from tenacity's transient-error retry
 _JSON_FENCE_PATTERN = re.compile(r"^```(?:json)?\s*|\s*```$", re.MULTILINE)
 
@@ -57,7 +57,10 @@ _OUTPUT_FORMAT_INSTRUCTIONS = (
     '"risk_level": "LOW" | "MEDIUM" | "HIGH" | "PROHIBITED", '
     '"violated_rule_ids": [<rule id strings>, empty list if none], '
     '"reasoning": "<concise explanation, under 1000 characters>"}\n'
-    "No prose outside the JSON object. No markdown code fences."
+    "No prose outside the JSON object. No markdown code fences.\n"
+    "If the input is genuinely ambiguous and you cannot make a confident determination, "
+    "return classification='REQUIRES_HUMAN_REVIEW' with confidence below 0.5 and "
+    "an explanation in the reasoning field. NEVER return an empty response."
 )
 
 
@@ -103,12 +106,13 @@ class OpenAIJudgeClient:
         model: str = DEFAULT_MODEL,
         base_url: str | None = None,
         timeout: float = 30.0,
-        max_tokens: int = 800,
+        max_tokens: int = 2000,
     ) -> None:
         # base_url=None keeps the SDK's own default (api.openai.com). Any other
         # OpenAI-compatible endpoint (e.g. "https://api.groq.com/openai/v1") is
         # a drop-in swap -- the request/response shape and every exception type
         # below is unchanged by which server answers.
+        logger.warning(f"DEBUG: base_url={base_url!r} api_key_len={len(api_key) if api_key else 0} api_key_prefix={(api_key[:8] + '...' + api_key[-4:]) if api_key and len(api_key) > 12 else api_key!r}")
         self._client = AsyncOpenAI(api_key=api_key, base_url=base_url, timeout=timeout, max_retries=0)
         self._model = model
         self._max_tokens = max_tokens
@@ -151,11 +155,24 @@ class OpenAIJudgeClient:
                 raise JudgeRefusalError(choice.message.refusal or "provider content filter blocked the response")
 
             if choice.finish_reason == "length":
-                raise JudgeTruncationError(f"response truncated at max_tokens (attempt {attempt})")
+                last_error = JudgeTruncationError(f"response truncated at max_tokens (attempt {attempt})")
+                logger.warning(f"attempt {attempt}: truncation detected, raising max_tokens for retry")
+                self._max_tokens = min(self._max_tokens * 2, 4000)
+                continue
 
             content = choice.message.content
+            
             if not content or not content.strip():
-                raise JudgeRefusalError("empty response body from provider")
+                last_error = JudgeRefusalError(f"empty response body from provider (attempt {attempt})")
+                logger.warning(f"attempt {attempt}: empty body, retrying with fallback instruction")
+                prompt = (
+                    system_prompt
+                    + "\n\nYour previous response was EMPTY. You must return a JSON object. "
+                    "If the input is genuinely ambiguous, set classification='REQUIRES_HUMAN_REVIEW' "
+                    "with confidence below 0.5 and explain what information is missing in the reasoning field. "
+                    "NEVER return an empty response."
+                )
+                continue
 
             try:
                 payload = _JudgmentPayload.model_validate_json(_strip_json_fences(content))

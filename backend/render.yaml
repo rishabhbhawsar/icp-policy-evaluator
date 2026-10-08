@@ -33,7 +33,7 @@ services:
         value: "86400"
 
       - key: BATCH_CONCURRENCY_LIMIT
-        value: "10"
+        value: "2"
 
       - key: OPENAI_API_KEY
         sync: false

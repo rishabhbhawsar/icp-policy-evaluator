@@ -118,13 +118,13 @@ const TelemetryHeader: FC<TelemetryHeaderProps> = ({
           <MetricCard
             label="Precision"
             value={precision}
-            caption="Baseline · n=23 · see README"
+            caption="Baseline · n=28 · see README"
             tone="emerald"
           />
           <MetricCard
             label="Recall"
             value={recall}
-            caption="Baseline · n=23 · see README"
+            caption="Baseline · n=28 · see README"
             tone="cyan"
           />
           <CacheStatusBadge
